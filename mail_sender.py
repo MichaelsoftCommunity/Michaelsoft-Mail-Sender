@@ -3,7 +3,7 @@
 
 """
 Michaelsoft Mail Sender - 邮件自动发送器
-版本: 1.0.0
+版本: 1.1.0
 """
 
 import smtplib
@@ -147,32 +147,79 @@ class MailSenderGUI:
             root: Tkinter根窗口
         """
         self.root = root
-        self.root.title("Michaelsoft Mail Sender  v1.0.0")
         self.root.geometry("800x600")
         self.root.minsize(800, 600)
         
         self.mail_sender = MailSender()
         self.attachments = []
         
+        # 加载语言配置
+        self.current_lang = "zh_CN"  # 默认中文
+        self.langs = {}
+        self._load_languages()
+        
         self._create_widgets()
         self._load_config_to_ui()
+        
+    def _load_languages(self):
+        """加载语言配置文件"""
+        lang_files = ["lang_zh_CN.json", "lang_en_US.json"]
+        for lang_file in lang_files:
+            try:
+                if os.path.exists(lang_file):
+                    lang_code = lang_file.replace("lang_", "").replace(".json", "")
+                    with open(lang_file, 'r', encoding='utf-8') as f:
+                        self.langs[lang_code] = json.load(f)
+                    logger.info(f"语言配置已从 {lang_file} 加载")
+            except Exception as e:
+                logger.error(f"加载语言配置文件失败: {str(e)}")
+        
+        # 如果没有加载到任何语言文件，使用默认的中文
+        if not self.langs:
+            logger.warning("未找到语言配置文件，使用内置中文")
+            self.langs["zh_CN"] = {
+                "app_title": "Michaelsoft Mail Sender v1.1.0",
+                "status_ready": "就绪"
+                # 其他默认值...
+            }
+        
+        # 设置窗口标题
+        self.root.title(self.langs.get(self.current_lang, {}).get("app_title", "Michaelsoft Mail Sender v1.1.0"))
     
     def _create_widgets(self):
         """创建界面组件"""
+        # 创建菜单栏
+        menubar = tk.Menu(self.root)
+        self.root.config(menu=menubar)
+        
+        # 语言菜单
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=self._get_text("language"), menu=lang_menu)
+        lang_menu.add_command(label=self._get_text("lang_zh_CN"), command=lambda: self._change_language("zh_CN"))
+        lang_menu.add_command(label=self._get_text("lang_en_US"), command=lambda: self._change_language("en_US"))
+        
         notebook = ttk.Notebook(self.root)
         notebook.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
         # 发送邮件标签页
         send_frame = ttk.Frame(notebook)
-        notebook.add(send_frame, text="发送邮件")
+        notebook.add(send_frame, text=self._get_text("tab_send"))
         
         # 配置标签页
         config_frame = ttk.Frame(notebook)
-        notebook.add(config_frame, text="配置")
+        notebook.add(config_frame, text=self._get_text("tab_config"))
         
         # 帮助标签页
         help_frame = ttk.Frame(notebook)
-        notebook.add(help_frame, text="帮助")
+        notebook.add(help_frame, text=self._get_text("tab_help"))
+        
+        # 保存notebook引用以便后续更新标签文本
+        self.notebook = notebook
+        self.notebook_frames = {
+            "send": send_frame,
+            "config": config_frame,
+            "help": help_frame
+        }
         
         # 发送邮件页面
         self._create_send_page(send_frame)
@@ -188,12 +235,65 @@ class MailSenderGUI:
         status_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=10)
         
         self.status_var = tk.StringVar()
-        self.status_var.set("就绪")
+        self.status_var.set(self._get_text("status_ready"))
         status_label = ttk.Label(status_frame, textvariable=self.status_var)
         status_label.pack(side=tk.LEFT)
         
-        version_label = ttk.Label(status_frame, text="v1.0.0")
+        version_label = ttk.Label(status_frame, text="v1.1.0")
         version_label.pack(side=tk.RIGHT)
+        
+    def _get_text(self, key, *args):
+        """获取当前语言的文本
+        
+        Args:
+            key: 文本键名
+            *args: 格式化参数
+            
+        Returns:
+            str: 对应语言的文本
+        """
+        text = self.langs.get(self.current_lang, {}).get(key, key)
+        if args:
+            try:
+                return text.format(*args)
+            except:
+                return text
+        return text
+        
+    def _change_language(self, lang_code):
+        """切换语言
+        
+        Args:
+            lang_code: 语言代码
+        """
+        if lang_code in self.langs and lang_code != self.current_lang:
+            self.current_lang = lang_code
+            self._update_ui_language()
+            
+    def _update_ui_language(self):
+        """更新界面语言"""
+        # 更新窗口标题
+        self.root.title(self._get_text("app_title"))
+        
+        # 更新标签页文本
+        self.notebook.tab(0, text=self._get_text("tab_send"))
+        self.notebook.tab(1, text=self._get_text("tab_config"))
+        self.notebook.tab(2, text=self._get_text("tab_help"))
+        
+        # 更新状态栏
+        self.status_var.set(self._get_text("status_ready"))
+        
+        # 重新创建各页面
+        for frame in self.notebook_frames.values():
+            for widget in frame.winfo_children():
+                widget.destroy()
+                
+        self._create_send_page(self.notebook_frames["send"])
+        self._create_config_page(self.notebook_frames["config"])
+        self._create_help_page(self.notebook_frames["help"])
+        
+        # 重新加载配置到UI
+        self._load_config_to_ui()
     
     def _create_send_page(self, parent):
         """创建发送邮件页面
@@ -202,41 +302,41 @@ class MailSenderGUI:
             parent: 父容器
         """
         # 收件人
-        ttk.Label(parent, text="收件人:").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("recipients")).grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
         self.recipients_entry = ttk.Entry(parent, width=70)
         self.recipients_entry.grid(row=0, column=1, sticky=tk.W+tk.E, padx=10, pady=5)
-        ttk.Label(parent, text="(多个收件人用逗号分隔)").grid(row=0, column=2, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("recipients_hint")).grid(row=0, column=2, sticky=tk.W, padx=10, pady=5)
         
         # 主题
-        ttk.Label(parent, text="主题:").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("subject")).grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
         self.subject_entry = ttk.Entry(parent, width=70)
         self.subject_entry.grid(row=1, column=1, columnspan=2, sticky=tk.W+tk.E, padx=10, pady=5)
         
         # 正文
-        ttk.Label(parent, text="正文:").grid(row=2, column=0, sticky=tk.NW, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("body")).grid(row=2, column=0, sticky=tk.NW, padx=10, pady=5)
         self.body_text = tk.Text(parent, height=15)
         self.body_text.grid(row=2, column=1, columnspan=2, sticky=tk.W+tk.E+tk.N+tk.S, padx=10, pady=5)
         
         # HTML选项
         self.html_var = tk.BooleanVar()
-        html_check = ttk.Checkbutton(parent, text="HTML格式", variable=self.html_var)
+        html_check = ttk.Checkbutton(parent, text=self._get_text("html_format"), variable=self.html_var)
         html_check.grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
         
         # 附件
-        ttk.Label(parent, text="附件:").grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("attachments")).grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
         
         attachments_frame = ttk.Frame(parent)
         attachments_frame.grid(row=4, column=1, sticky=tk.W+tk.E, padx=10, pady=5)
         
         self.attachments_var = tk.StringVar()
-        self.attachments_var.set("未选择附件")
+        self.attachments_var.set(self._get_text("no_attachments"))
         ttk.Label(attachments_frame, textvariable=self.attachments_var).pack(side=tk.LEFT)
         
-        ttk.Button(attachments_frame, text="添加附件", command=self._add_attachment).pack(side=tk.LEFT, padx=5)
-        ttk.Button(attachments_frame, text="清除附件", command=self._clear_attachments).pack(side=tk.LEFT)
+        ttk.Button(attachments_frame, text=self._get_text("add_attachment"), command=self._add_attachment).pack(side=tk.LEFT, padx=5)
+        ttk.Button(attachments_frame, text=self._get_text("clear_attachments"), command=self._clear_attachments).pack(side=tk.LEFT)
         
         # 发送按钮
-        send_button = ttk.Button(parent, text="发送邮件", command=self._send_mail)
+        send_button = ttk.Button(parent, text=self._get_text("send_mail"), command=self._send_mail)
         send_button.grid(row=5, column=1, pady=20)
         
         # 配置网格权重
@@ -250,27 +350,27 @@ class MailSenderGUI:
             parent: 父容器
         """
         # SMTP服务器
-        ttk.Label(parent, text="SMTP服务器:").grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("smtp_server")).grid(row=0, column=0, sticky=tk.W, padx=10, pady=5)
         self.smtp_server_entry = ttk.Entry(parent, width=40)
         self.smtp_server_entry.grid(row=0, column=1, sticky=tk.W, padx=10, pady=5)
         
         # SMTP端口
-        ttk.Label(parent, text="SMTP端口:").grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("smtp_port")).grid(row=1, column=0, sticky=tk.W, padx=10, pady=5)
         self.smtp_port_entry = ttk.Entry(parent, width=10)
         self.smtp_port_entry.grid(row=1, column=1, sticky=tk.W, padx=10, pady=5)
         
         # 发件人邮箱
-        ttk.Label(parent, text="发件人邮箱:").grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("sender_email")).grid(row=2, column=0, sticky=tk.W, padx=10, pady=5)
         self.sender_email_entry = ttk.Entry(parent, width=40)
         self.sender_email_entry.grid(row=2, column=1, sticky=tk.W, padx=10, pady=5)
         
         # 密码/授权码
-        ttk.Label(parent, text="密码/授权码:").grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("password")).grid(row=3, column=0, sticky=tk.W, padx=10, pady=5)
         self.password_entry = ttk.Entry(parent, width=40, show="*")
         self.password_entry.grid(row=3, column=1, sticky=tk.W, padx=10, pady=5)
         
         # 常用服务器配置
-        ttk.Label(parent, text="常用服务器:").grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
+        ttk.Label(parent, text=self._get_text("common_servers")).grid(row=4, column=0, sticky=tk.W, padx=10, pady=5)
         
         servers_frame = ttk.Frame(parent)
         servers_frame.grid(row=4, column=1, sticky=tk.W, padx=10, pady=5)
@@ -285,11 +385,11 @@ class MailSenderGUI:
                   command=lambda: self._set_preset_server("smtp.office365.com", "587")).pack(side=tk.LEFT, padx=5)
         
         # 保存配置按钮
-        save_button = ttk.Button(parent, text="保存配置", command=self._save_config)
+        save_button = ttk.Button(parent, text=self._get_text("save_config"), command=self._save_config)
         save_button.grid(row=5, column=1, sticky=tk.W, padx=10, pady=20)
         
         # 测试连接按钮
-        test_button = ttk.Button(parent, text="测试连接", command=self._test_connection)
+        test_button = ttk.Button(parent, text=self._get_text("test_connection"), command=self._test_connection)
         test_button.grid(row=5, column=0, sticky=tk.E, padx=10, pady=20)
     
     def _create_help_page(self, parent):
@@ -301,33 +401,7 @@ class MailSenderGUI:
         help_text = tk.Text(parent, wrap=tk.WORD, padx=10, pady=10)
         help_text.pack(fill=tk.BOTH, expand=True)
         
-        help_content = """
-        Michaelsoft Mail Sender v1.0.0
-        
-        使用说明:
-        
-        1. 配置
-           - 在"配置"标签页中设置您的SMTP服务器信息
-           - 对于常见邮箱服务，可以点击预设按钮快速配置
-           - QQ邮箱和163邮箱需要使用授权码而非登录密码
-        
-        2. 发送邮件
-           - 填写收件人、主题和正文
-           - 多个收件人请用逗号分隔
-           - 可选择是否使用HTML格式
-           - 可添加一个或多个附件
-        
-        3. 常见问题
-           - 如果发送失败，请检查SMTP服务器配置是否正确
-           - 确认您的邮箱服务商是否允许SMTP发送
-           - 部分邮箱服务需要在邮箱设置中开启SMTP服务
-        
-        4. 关于授权码
-           - QQ邮箱: 设置 -> 账户 -> POP3/SMTP服务 -> 开启 -> 获取授权码
-           - 163邮箱: 设置 -> POP3/SMTP/IMAP -> 开启 -> 获取授权码
-        
-        如需更多帮助，请联系技术支持。
-        """
+        help_content = self._get_text("help_content")
         
         help_text.insert(tk.END, help_content)
         help_text.config(state=tk.DISABLED)
@@ -335,6 +409,12 @@ class MailSenderGUI:
     def _load_config_to_ui(self):
         """将配置加载到界面"""
         config = self.mail_sender.config
+        
+        # 加载语言设置
+        if "language" in config and config["language"] in self.langs:
+            if self.current_lang != config["language"]:
+                self.current_lang = config["language"]
+                # 不在这里调用 _update_ui_language，避免递归调用
         
         if "smtp_server" in config:
             self.smtp_server_entry.delete(0, tk.END)
@@ -358,14 +438,15 @@ class MailSenderGUI:
             "smtp_server": self.smtp_server_entry.get(),
             "smtp_port": self.smtp_port_entry.get(),
             "sender_email": self.sender_email_entry.get(),
-            "password": self.password_entry.get()
+            "password": self.password_entry.get(),
+            "language": self.current_lang  # 保存当前语言设置
         }
         
         self.mail_sender.config = config
         self.mail_sender.save_config()
         
-        self.status_var.set("配置已保存")
-        messagebox.showinfo("成功", "配置已保存")
+        self.status_var.set(self._get_text("config_saved"))
+        messagebox.showinfo(self._get_text("success"), self._get_text("config_saved_msg"))
     
     def _set_preset_server(self, server, port):
         """设置预设服务器
@@ -380,7 +461,7 @@ class MailSenderGUI:
         self.smtp_port_entry.delete(0, tk.END)
         self.smtp_port_entry.insert(0, port)
         
-        self.status_var.set(f"已设置 {server}:{port}")
+        self.status_var.set(self._get_text("server_set", server, port))
     
     def _add_attachment(self):
         """添加附件"""
@@ -397,11 +478,11 @@ class MailSenderGUI:
     def _update_attachments_label(self):
         """更新附件标签"""
         if not self.attachments:
-            self.attachments_var.set("未选择附件")
+            self.attachments_var.set(self._get_text("no_attachments"))
         elif len(self.attachments) == 1:
             self.attachments_var.set(os.path.basename(self.attachments[0]))
         else:
-            self.attachments_var.set(f"已选择 {len(self.attachments)} 个附件")
+            self.attachments_var.set(self._get_text("attachments_selected", len(self.attachments)))
     
     def _send_mail(self):
         """发送邮件"""
@@ -411,24 +492,24 @@ class MailSenderGUI:
         html = self.html_var.get()
         
         if not recipients:
-            messagebox.showerror("错误", "请输入至少一个收件人")
+            messagebox.showerror(self._get_text("error"), self._get_text("empty_recipients"))
             return
         
         if not subject:
-            if not messagebox.askyesno("警告", "邮件主题为空，是否继续发送？"):
+            if not messagebox.askyesno(self._get_text("warning"), self._get_text("empty_subject")):
                 return
         
-        self.status_var.set("正在发送邮件...")
+        self.status_var.set(self._get_text("sending"))
         self.root.update()
         
         success = self.mail_sender.send_mail(recipients, subject, body, self.attachments, html)
         
         if success:
-            self.status_var.set("邮件发送成功")
-            messagebox.showinfo("成功", f"邮件已成功发送给 {len(recipients)} 个收件人")
+            self.status_var.set(self._get_text("send_success"))
+            messagebox.showinfo(self._get_text("success"), self._get_text("send_success_msg", len(recipients)))
         else:
-            self.status_var.set("邮件发送失败")
-            messagebox.showerror("错误", "邮件发送失败，请检查配置和网络连接")
+            self.status_var.set(self._get_text("send_fail"))
+            messagebox.showerror(self._get_text("error"), self._get_text("send_fail_msg"))
     
     def _test_connection(self):
         """测试SMTP连接"""
@@ -438,27 +519,32 @@ class MailSenderGUI:
         password = self.password_entry.get()
         
         if not server or not port or not email or not password:
-            messagebox.showerror("错误", "请填写完整的SMTP服务器信息")
+            messagebox.showerror(self._get_text("error"), self._get_text("incomplete_smtp"))
             return
         
-        self.status_var.set("正在测试连接...")
+        self.status_var.set(self._get_text("testing_connection"))
         self.root.update()
         
         try:
             context = ssl.create_default_context()
             with smtplib.SMTP_SSL(server, int(port), context=context) as smtp_server:
                 smtp_server.login(email, password)
-                self.status_var.set("连接测试成功")
-                messagebox.showinfo("成功", "SMTP服务器连接测试成功")
+                self.status_var.set(self._get_text("test_success"))
+                messagebox.showinfo(self._get_text("success"), self._get_text("test_success_msg"))
         except Exception as e:
-            self.status_var.set("连接测试失败")
-            messagebox.showerror("错误", f"连接测试失败: {str(e)}")
+            self.status_var.set(self._get_text("test_fail"))
+            messagebox.showerror(self._get_text("error"), self._get_text("test_fail_msg", str(e)))
 
 
 def main():
     """主函数"""
     root = tk.Tk()
     app = MailSenderGUI(root)
+    
+    # 如果配置中有语言设置，则应用它
+    if "language" in app.mail_sender.config:
+        app._change_language(app.mail_sender.config["language"])
+    
     root.mainloop()
 
 
